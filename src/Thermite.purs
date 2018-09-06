@@ -413,3 +413,15 @@ foreach f = Spec
       where
       go _ Nil         r = r
       go i (Cons x xs) r = go (i + 1) xs (g i x r)
+
+hide
+  :: forall props1 props2 state1 state2 action1 action2
+   . React.ReactPropFields props1 props2
+  => Record state1
+  -> Spec (Record state1) (Record props1) action1
+  -> Spec (Record state2) (Record props2) action2
+hide initialState spec = Spec { performAction: defaultPerformAction, render }
+  where
+    reactClass = createClass "HiddenState" spec initialState
+    render _ props _ children =
+      [ React.createElement reactClass props children ]
