@@ -33,6 +33,7 @@ module Thermite
   , match
   , split
   , foreach
+  , hide
   , cmapProps
 
   , module T
