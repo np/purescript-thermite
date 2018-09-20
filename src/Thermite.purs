@@ -35,6 +35,7 @@ module Thermite
   , foreach
   , hide
   , cmapProps
+  , noState
 
   , module T
   ) where
@@ -47,7 +48,7 @@ import Control.Monad.Free.Trans (resume)
 import Control.Monad.Rec.Class (Step(..), forever, tailRecM)
 import Data.Either (Either(..))
 import Data.Foldable (for_, traverse_)
-import Data.Lens (Prism', Lens', matching, view, review, preview, lens, over)
+import Data.Lens (Prism', Lens', matching, view, review, preview, lens, over, prism)
 import Data.List (List(..), (!!), modifyAt)
 import Data.Maybe (Maybe(Just), fromMaybe)
 import Data.Tuple (Tuple(..))
@@ -426,3 +427,16 @@ hide initialState spec = Spec { performAction: defaultPerformAction, render }
     reactClass = createClass "HiddenState" spec initialState
     render _ props _ children =
       [ React.createElement reactClass props children ]
+
+-- TODO move elsewhere
+united' :: forall a. Lens' a {}
+united' = lens (const {}) const
+
+-- TODO move elsewhere
+revoid :: forall s. Prism' s Void
+revoid = prism absurd Left
+
+noState :: forall props state action
+         . Spec {} props Void
+        -> Spec state props action
+noState = focus united' revoid
