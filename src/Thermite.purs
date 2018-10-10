@@ -36,7 +36,9 @@ module Thermite
   , hideState
   , hideInnerIgnoreOuterState
   , cmapProps
+  , noProps
   , noState
+  , noStateKeepAction
 
   , module T
   ) where
@@ -383,6 +385,12 @@ split prism (Spec spec) = Spec { performAction, render }
         Left _ -> []
         Right st' -> spec.render k p st' children
 
+noProps :: forall props state action
+         . props
+        -> Spec state props action
+        -> Spec state {} action
+noProps = cmapProps <<< const
+
 -- | Create a component whose state is described by a list, displaying one subcomponent
 -- | for each entry in the list.
 -- |
@@ -465,3 +473,8 @@ noState :: forall props state action
          . Spec {} props Void
         -> Spec state props action
 noState = focus united' revoid
+
+noStateKeepAction :: forall props state action
+                   . Spec {}    props action
+                  -> Spec state props action
+noStateKeepAction = focus united' identity
