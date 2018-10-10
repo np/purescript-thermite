@@ -33,7 +33,8 @@ module Thermite
   , match
   , split
   , foreach
-  , hide
+  , hideState
+  , hideInnerIgnoreOuterState
   , cmapProps
   , noState
 
@@ -416,17 +417,41 @@ foreach f = Spec
       go _ Nil         r = r
       go i (Cons x xs) r = go (i + 1) xs (g i x r)
 
-hide
+-- | Given an initial state and a component, return a new
+-- component which ignores the state and actions but
+-- wraps the inner component and its state locally.
+--
+-- Using `hideState` is easier since the type is more explicit.
+hideInnerIgnoreOuterState
   :: forall props1 props2 state1 state2 action1 action2
    . React.ReactPropFields props1 props2
   => Record state1
   -> Spec (Record state1) (Record props1) action1
   -> Spec (Record state2) (Record props2) action2
-hide initialState spec = Spec { performAction: defaultPerformAction, render }
+hideInnerIgnoreOuterState initialState spec =
+    Spec { performAction: defaultPerformAction, render }
   where
     reactClass = createClass "HiddenState" spec initialState
     render _ props _ children =
       [ React.createElement reactClass props children ]
+
+-- | Given an initial state and a component, return a new
+-- component which exposes no state or actions but
+-- wraps the inner component and its state locally.
+--
+-- If the resulting component needs to be integrated in a component
+-- with a different state one can use `noState`.
+--
+-- ```
+-- hideInnerIgnoreOuterState st sp == noState (hideState st sp)
+-- ```
+hideState
+  :: forall props1 props2 state1 action1
+   . React.ReactPropFields props1 props2
+  => Record state1
+  -> Spec (Record state1) (Record props1) action1
+  -> Spec {}              (Record props2) Void
+hideState = hideInnerIgnoreOuterState
 
 -- TODO move elsewhere
 united' :: forall a. Lens' a {}
