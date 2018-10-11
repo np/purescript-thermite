@@ -17,13 +17,16 @@ module Thermite
   , Render
   , defaultRender
   , writeState
+  , writeState_
   , modifyState
+  , modifyState_
   , StateCoTransformer
   , Spec
   , _performAction
   , _render
   , simpleSpec
   , createClass
+  , createClass'
   , createReactSpec
   , createReactSpec'
   , defaultMain
@@ -97,6 +100,14 @@ writeState st = cotransform (const st)
 -- | An alias for `cotransform` - apply a function to the current component state.
 modifyState :: forall state. (state -> state) -> StateCoTransformer state (Maybe state)
 modifyState = cotransform
+
+-- | Same as `writeState` but returning nothing.
+writeState_ :: forall state. state -> StateCoTransformer state Unit
+writeState_ st = void (cotransform (const st))
+
+-- | Same as `modifyState` but returning nothing.
+modifyState_ :: forall state. (state -> state) -> StateCoTransformer state Unit
+modifyState_ f = void (cotransform f)
 
 -- | A type synonym for an event handler which can be used to construct
 -- | `purescript-react`'s event attributes.
@@ -201,6 +212,10 @@ type ReactSpecSimple props state
    = React.ReactThis {children :: Children | props} (Record state)
   -> Effect {state :: Record state, render :: React.Render}
 
+type ReactDispatcher props state action
+   = React.ReactThis {children :: Children | props} (Record state)
+  -> action -> EventHandler
+
 -- | Create a React component class from a Thermite component `Spec`.
 createClass
   :: forall state props action
@@ -211,6 +226,17 @@ createClass
 createClass className spec state =
   React.component className $ _.spec $ createReactSpec spec state
 
+-- | Create a React component class from a Thermite component `Spec`.
+createClass'
+  :: forall state props action
+   . String
+  -> Spec (Record state) (Record props) action
+  -> Record state
+  -> (Array React.ReactElement -> React.ReactElement)
+  -> React.ReactClass {children :: Children | props}
+createClass' className spec state wrap =
+  React.component className $ _.spec $ createReactSpec' wrap spec state
+
 -- | Create a React component spec from a Thermite component `Spec`.
 -- |
 -- | This function is a low-level alternative to `createClass`, used when the React
@@ -220,8 +246,9 @@ createReactSpec
   :: forall state props action
    . Spec (Record state) (Record props) action
   -> Record state
-  -> { spec :: ReactSpecSimple props state
-     , dispatcher :: React.ReactThis {children :: Children | props} (Record state) -> action -> EventHandler
+  -> { spec        :: ReactSpecSimple props state
+     , dispatcher  :: ReactDispatcher props state action
+     , dispatcher' :: ReactDispatcher props state (StateCoTransformer (Record state) Unit)
      }
 createReactSpec = createReactSpec' div'
 
@@ -240,40 +267,44 @@ createReactSpec'
    . (Array React.ReactElement -> React.ReactElement)
   -> Spec (Record state) (Record props) action
   -> Record state
-  -> { spec :: ReactSpecSimple props state
-     , dispatcher :: React.ReactThis {children :: Children | props} (Record state)
-                  -> action -> EventHandler
+  -> { spec        :: ReactSpecSimple props state
+     , dispatcher  :: ReactDispatcher props state action
+     , dispatcher' :: ReactDispatcher props state (StateCoTransformer (Record state) Unit)
      }
 createReactSpec' wrap (Spec spec) =
-    \state' ->
-      { spec: \this -> pure {state : state', render : render this}
+    \state ->
+      { spec: \this -> pure {state, render : render this}
       , dispatcher
+      , dispatcher'
       }
   where
+    step :: React.ReactThis {children :: Children | props} (Record state)
+         -> StateCoTransformer (Record state) Unit
+         -> Aff (Step (StateCoTransformer (Record state) Unit) Unit)
+    step this cot = do
+      e <- resume cot
+      case e of
+        Left _ -> pure (Done unit)
+        Right (CoTransform f k) -> do
+          st <- liftEffect (React.getState this)
+          let newState = f st
+          _ <- makeAff \cb -> do
+            void $ React.writeStateWithCallback this newState (cb (Right newState))
+            pure nonCanceler
+          pure (Loop (k (Just newState)))
+
+    dispatcher' :: React.ReactThis {children :: Children | props} (Record state)
+                -> StateCoTransformer (Record state) Unit -> EventHandler
+    dispatcher' this cotransformer = void do
+      -- Step the coroutine manually, since none of the existing coroutine
+      -- functions do quite what we want here.
+      launchAff (tailRecM (step this) cotransformer)
+
     dispatcher :: React.ReactThis {children :: Children | props} (Record state) -> action -> EventHandler
     dispatcher this action = void do
       props <- React.getProps this
       state <- React.getState this
-      let
-          step :: StateCoTransformer (Record state) Unit
-               -> Aff (Step (StateCoTransformer (Record state) Unit) Unit)
-          step cot = do
-            e <- resume cot
-            case e of
-              Left _ -> pure (Done unit)
-              Right (CoTransform f k) -> do
-                st <- liftEffect (React.getState this)
-                let newState = f st
-                _ <- makeAff \cb -> do
-                  void $ React.writeStateWithCallback this newState (cb (Right newState))
-                  pure nonCanceler
-                pure (Loop (k (Just newState)))
-
-          cotransformer :: StateCoTransformer (Record state) Unit
-          cotransformer = spec.performAction action (noChildren props) state
-      -- Step the coroutine manually, since none of the existing coroutine
-      -- functions do quite what we want here.
-      launchAff (tailRecM step cotransformer)
+      dispatcher' this $ spec.performAction action (noChildren props) state
 
     render :: React.ReactThis {children :: Children | props} (Record state) -> React.Render
     render this = do
