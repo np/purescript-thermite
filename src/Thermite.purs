@@ -221,7 +221,7 @@ createClass
   :: forall state props action
    . String
   -> Spec (Record state) (Record props) action
-  -> Record state
+  -> (Record props -> Record state)
   -> React.ReactClass {children :: Children | props}
 createClass className spec state =
   React.component className $ _.spec $ createReactSpec spec state
@@ -231,7 +231,7 @@ createClass'
   :: forall state props action
    . String
   -> Spec (Record state) (Record props) action
-  -> Record state
+  -> (Record props -> Record state)
   -> (Array React.ReactElement -> React.ReactElement)
   -> React.ReactClass {children :: Children | props}
 createClass' className spec state wrap =
@@ -245,7 +245,7 @@ createClass' className spec state wrap =
 createReactSpec
   :: forall state props action
    . Spec (Record state) (Record props) action
-  -> Record state
+  -> (Record props -> Record state)
   -> { spec        :: ReactSpecSimple props state
      , dispatcher  :: ReactDispatcher props state action
      , dispatcher' :: ReactDispatcher props state (StateCoTransformer (Record state) Unit)
@@ -266,14 +266,16 @@ createReactSpec'
   :: forall state props action
    . (Array React.ReactElement -> React.ReactElement)
   -> Spec (Record state) (Record props) action
-  -> Record state
+  -> (Record props -> Record state)
   -> { spec        :: ReactSpecSimple props state
      , dispatcher  :: ReactDispatcher props state action
      , dispatcher' :: ReactDispatcher props state (StateCoTransformer (Record state) Unit)
      }
 createReactSpec' wrap (Spec spec) =
     \state ->
-      { spec: \this -> pure {state, render : render this}
+      { spec: \this -> do
+          props <- React.getProps this
+          pure {state : state (noChildren props), render : render this}
       , dispatcher
       , dispatcher'
       }
@@ -321,7 +323,7 @@ defaultMain
   -> {children :: Children | props}
   -> Effect Unit
 defaultMain spec initialState props = void do
-  let component = createClass "DefaultMain" spec initialState
+  let component = createClass "DefaultMain" spec (const initialState)
   window <- DOM.window
   document <- DOM.document window
   container <- DOM.body document
@@ -464,7 +466,7 @@ foreach f = Spec
 hideInnerIgnoreOuterState
   :: forall props1 props2 state1 state2 action1 action2
    . React.ReactPropFields props1 props2
-  => Record state1
+  => (Record props1 -> Record state1)
   -> Spec (Record state1) (Record props1) action1
   -> Spec (Record state2) (Record props2) action2
 hideInnerIgnoreOuterState initialState spec =
@@ -487,7 +489,7 @@ hideInnerIgnoreOuterState initialState spec =
 hideState
   :: forall props1 props2 state1 action1
    . React.ReactPropFields props1 props2
-  => Record state1
+  => (Record props1 -> Record state1)
   -> Spec (Record state1) (Record props1) action1
   -> Spec {}              (Record props2) Void
 hideState = hideInnerIgnoreOuterState
